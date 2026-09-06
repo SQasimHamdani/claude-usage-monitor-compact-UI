@@ -113,7 +113,7 @@ function reapplyData() {
 }
 
 function setupPinnedDrag() {
-    const header = document.querySelector('header');
+    const header = document.querySelector('.app-container');
     let dragging = false;
 
     function setDragging(active) {
@@ -174,7 +174,11 @@ function updateData(data) {
         els.planRow.style.display = data.profile.plan ? '' : 'none';
     }
 
-    const usage = (data.usage || []).filter((entry) => !compactHidden(entry.key));
+    const usage = (data.usage || []).filter((entry) => 
+        !compactHidden(entry.key) && 
+        !entry.label.toLowerCase().includes('nimbus') &&
+        !entry.label.toLowerCase().includes('quill')
+    );
     const hasUsage = !!usage.length;
     els.usageSection.classList.toggle('visible', hasUsage);
     if (hasUsage) {
@@ -354,91 +358,61 @@ function updateUsageBars(entries) {
 
 function createBarElement(entry) {
     const div = document.createElement('div');
-    div.className = 'usage-entry';
+    div.className = 'compact-bar-wrapper';
     div.dataset.key = entry.key;
 
     const header = document.createElement('div');
-    header.className = 'bar-header';
+    header.className = 'compact-bar-header';
+    
     const label = document.createElement('span');
-    label.textContent = entry.label;
+    label.className = 'compact-label';
+    let labelText = entry.label.replace(/ usage/i, '').toLowerCase();
+    if(labelText.includes('7 days')) labelText = 'week';
+    label.textContent = labelText;
+    
     const pct = document.createElement('span');
-    pct.className = 'bar-pct';
-    pct.textContent = entry.pct_text;
+    pct.className = 'compact-pct';
+    const pctVal = entry.pct_text.replace('%', '');
+    pct.innerHTML = `<span class="pct-num">${pctVal}</span><span class="pct-sym">%</span>`;
+    
     header.append(label, pct);
 
     const container = document.createElement('div');
-    container.className = 'bar-container';
-    const fill = document.createElement('div');
-    fill.className = 'bar-fill';
-    fill.classList.toggle('warn', entry.warn);
-    fill.style.width = '0%';
-    container.appendChild(fill);
-
-    for (const pos of entry.dividers) {
-        const d = document.createElement('div');
-        d.className = 'bar-divider';
-        d.style.left = `calc(${pos * 100}% - 1px)`;
-        container.appendChild(d);
+    container.className = 'compact-bar-container';
+    
+    const segmentsCount = 25;
+    const fillCount = Math.round(entry.fill_pct * segmentsCount);
+    
+    for (let i = 0; i < segmentsCount; i++) {
+        const seg = document.createElement('div');
+        seg.className = 'compact-segment';
+        if (i < fillCount) seg.classList.add('filled');
+        if (entry.warn && i < fillCount) seg.classList.add('warn');
+        container.appendChild(seg);
     }
 
-    if (entry.marker_rel !== null) {
-        const marker = document.createElement('div');
-        marker.className = 'bar-marker';
-        marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
-        container.appendChild(marker);
-    }
+    const reset = document.createElement('div');
+    reset.className = 'compact-reset';
+    reset.textContent = entry.reset_text || '';
 
-    div.append(header, container);
-
-    if (entry.reset_text) {
-        const reset = document.createElement('div');
-        reset.className = 'reset-text';
-        reset.textContent = entry.reset_text;
-        div.appendChild(reset);
-    }
-
+    div.append(header, container, reset);
     return div;
 }
 
 function updateBarElement(div, entry) {
-    div.querySelector('.bar-pct').textContent = entry.pct_text;
-
-    const fill = div.querySelector('.bar-fill');
-    fill.style.width = `${entry.fill_pct * 100}%`;
-    fill.classList.toggle('warn', entry.warn);
-
-    const container = div.querySelector('.bar-container');
-    let marker = container.querySelector('.bar-marker');
-    if (entry.marker_rel !== null) {
-        if (!marker) {
-            marker = document.createElement('div');
-            marker.className = 'bar-marker';
-            container.appendChild(marker);
-        }
-        marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
-    } else if (marker) {
-        marker.remove();
+    const pctVal = entry.pct_text.replace('%', '');
+    div.querySelector('.compact-pct').innerHTML = `<span class="pct-num">${pctVal}</span><span class="pct-sym">%</span>`;
+    
+    const container = div.querySelector('.compact-bar-container');
+    const segments = container.children;
+    const fillCount = Math.round(entry.fill_pct * segments.length);
+    for (let i = 0; i < segments.length; i++) {
+        segments[i].classList.toggle('filled', i < fillCount);
+        segments[i].classList.toggle('warn', entry.warn && i < fillCount);
     }
-
-    for (const d of container.querySelectorAll('.bar-divider')) d.remove();
-    for (const pos of entry.dividers) {
-        const d = document.createElement('div');
-        d.className = 'bar-divider';
-        d.style.left = `calc(${pos * 100}% - 1px)`;
-        container.appendChild(d);
-    }
-
-    let resetEl = div.querySelector('.reset-text');
-    if (entry.reset_text) {
-        if (!resetEl) {
-            resetEl = document.createElement('div');
-            resetEl.className = 'reset-text';
-            div.appendChild(resetEl);
-        }
-        resetEl.textContent = entry.reset_text;
-    } else if (resetEl) {
-        resetEl.remove();
-    }
+    
+    const reset = div.querySelector('.compact-reset');
+    if (reset) reset.textContent = entry.reset_text || '';
 }
 
 // Report content height changes to the host (pywebview or dev.html iframe parent).
