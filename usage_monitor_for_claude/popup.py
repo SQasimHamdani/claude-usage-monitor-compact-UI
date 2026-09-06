@@ -226,8 +226,15 @@ class _PopupApi:
     def end_drag(self) -> None:
         self._popup._end_drag()
 
+    def report_size(self, width: int, height: int) -> None:
+        """Called by JS ResizeObserver when container dimensions change."""
+        if not width or not height:
+            return
+
+        self._popup._apply_size(width, height)
+
     def report_height(self, height: int) -> None:
-        """Called by JS ResizeObserver when content height changes."""
+        """Called by legacy JS ResizeObserver when content height changes."""
         if not height:
             return
 
@@ -241,9 +248,9 @@ class _PopupApi:
 class UsagePopup:
     """Dark-themed HTML popup window showing account info and usage bars."""
 
-    WIDTH = 340
+    WIDTH = 265
     _CHECK_MS = 2000
-    _INITIAL_HEIGHT = 400
+    _INITIAL_HEIGHT = 85
 
     def __init__(self, app: UsageMonitorForClaude) -> None:
         """Create and display a popup window with usage details.
@@ -269,6 +276,7 @@ class UsagePopup:
         # as a change so the window gets resized, positioned and shown even
         # when the content is exactly _INITIAL_HEIGHT tall.
         self._last_height = 0
+        self._last_width = self.WIDTH
         self._last_version = app.cache.snapshot.version
 
         self._window = webview.create_window(
@@ -276,7 +284,8 @@ class UsagePopup:
             width=self.WIDTH, height=self._INITIAL_HEIGHT,
             frameless=True, easy_drag=False,
             on_top=True, hidden=True,
-            transparent=True,
+            transparent=False,
+            min_size=(0, 0),
             js_api=_PopupApi(self),
             **WINDOW_KWARGS,
         )
@@ -302,13 +311,46 @@ class UsagePopup:
 
         self._host.prepare()
 
-        # The height is read here rather than waited for: popup.js reports it
-        # through a ResizeObserver guarded by the pywebview bridge, and that
-        # observer's single firing can precede the bridge being ready.  A
-        # later report of the same height is a no-op.
-        height = int(self._window.evaluate_js('document.body.scrollHeight') or 0)
-        if height:
-            self._apply_height(height)
+        # Measure dimensions of the actual compact content
+        size = self._window.evaluate_js("""
+            (() => {
+                const content = document.querySelector('.app-content');
+                if (content) {
+                    const r = content.getBoundingClientRect();
+                    return [Math.ceil(r.width) + 36, Math.ceil(r.height) + 18];
+                }
+                const el = document.querySelector('.app-container');
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return [Math.ceil(r.width), Math.ceil(r.height)];
+            })()
+        """)
+        if size and len(size) == 2 and size[0] and size[1]:
+            self._apply_size(int(size[0]), int(size[1]))
+        else:
+            height = int(self._window.evaluate_js('document.body.scrollHeight') or 0)
+            if height:
+                self._apply_height(height)
+
+    def _apply_size(self, width: int, height: int) -> None:
+        """Resize and position for width and height."""
+        with self._geometry_lock:
+            while not hasattr(self, '_host'):
+                time.sleep(0.005)
+
+            if width == self._last_width and height == self._last_height:
+                return
+
+            self._last_width = width
+            self._last_height = height
+            self._host.apply_geometry(height, keep_position=self._pinned and self._moved_while_pinned, width=width)
+
+            if self._shown:
+                return
+
+            self._shown = True
+            self._host.reveal()
+            threading.Thread(target=self._update_loop, daemon=True).start()
 
     def _apply_height(self, height: int) -> None:
         """Resize and position for *height*, revealing the window the first time.
@@ -319,6 +361,9 @@ class UsagePopup:
         whole check-resize-reveal sequence.
         """
         with self._geometry_lock:
+            while not hasattr(self, '_host'):
+                time.sleep(0.005)
+
             if height == self._last_height:
                 return
 
@@ -386,6 +431,11 @@ class UsagePopup:
     def _end_drag(self) -> None:
         with self._geometry_lock:
             self._host.end_drag(self._last_height)
+            if getattr(self, '_window', None):
+                try:
+                    self._window.evaluate_js('if (typeof reportDimensions !== "undefined") { reportDimensions(); }')
+                except Exception:
+                    pass
 
     def _update_loop(self) -> None:
         """Poll for data changes and push updates to the popup."""
@@ -404,10 +454,12 @@ class UsagePopup:
                     cached_installations = [{'name': i.name, 'version': i.version} for i in find_installations()]
                     
                     # Auto-stick when activity is detected to save CPU/RAM vs constant process polling
-                    if not self._pinned:
+                    if not getattr(self, '_pinned', False):
                         self._set_pinned(True)
-                        self._window.evaluate_js('if (typeof setupPinButton !== "undefined") { popupPinned = true; setupPinButton(); }')
-                        self._host.reveal()
+                        if getattr(self, '_window', None):
+                            self._window.evaluate_js('if (typeof setPinnedFromPython !== "undefined") { setPinnedFromPython(true); }')
+                        if getattr(self, '_host', None):
+                            self._host.reveal()
                         
                 data = _snapshot_to_dict(snap, installations=cached_installations, next_poll_time=next_poll_time)
                 self._window.evaluate_js(f'updateData({json.dumps(data)})')

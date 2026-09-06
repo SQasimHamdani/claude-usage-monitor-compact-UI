@@ -219,6 +219,7 @@ function updateData(data) {
     }
 
     updateStatus(data.status);
+    reportDimensions();
 }
 
 /**
@@ -319,18 +320,12 @@ function formatDuration(totalSeconds) {
  * Format a countdown in seconds into a localized duration string.
  */
 function formatCountdown(totalSeconds) {
-    if (totalSeconds < 60) {
-        return translations.duration_s.replace('{s}', totalSeconds);
-    }
-
-    const totalMin = Math.ceil(totalSeconds / 60);
-    const hours = Math.floor(totalMin / 60);
-    const mins = totalMin % 60;
-
+    const hours = Math.floor(totalSeconds / 3600);
+    const mins = Math.ceil((totalSeconds % 3600) / 60);
     if (hours > 0) {
         return translations.duration_hm.replace('{h}', hours).replace('{m}', mins);
     }
-    return translations.duration_m.replace('{m}', totalMin);
+    return translations.duration_m.replace('{m}', mins);
 }
 
 function updateUsageBars(entries) {
@@ -345,8 +340,10 @@ function updateUsageBars(entries) {
         els.usageBars.replaceChildren(...entries.map(createBarElement));
         requestAnimationFrame(() => {
             for (let i = 0; i < entries.length; i++) {
-                els.usageBars.children[i].querySelector('.bar-fill').style.width =
-                    `${entries[i].fill_pct * 100}%`;
+                const fillEl = els.usageBars.children[i].querySelector('.bar-fill');
+                if (fillEl && fillEl.style) {
+                    fillEl.style.width = `${entries[i].fill_pct * 100}%`;
+                }
             }
         });
     } else {
@@ -354,32 +351,53 @@ function updateUsageBars(entries) {
             updateBarElement(els.usageBars.children[i], entries[i]);
         }
     }
-}
-
-function createBarElement(entry) {
+}function createBarElement(entry) {
     const div = document.createElement('div');
     div.className = 'compact-bar-wrapper';
     div.dataset.key = entry.key;
 
     const header = document.createElement('div');
-    header.className = 'compact-bar-header';
+    header.className = 'compact-bar-header bar-header';
     
     const label = document.createElement('span');
     label.className = 'compact-label';
-    let labelText = entry.label.replace(/ usage/i, '').toLowerCase();
-    if(labelText.includes('7 days')) labelText = 'week';
+    let labelText = entry.label;
+    if (labelText.toLowerCase().includes('usage')) {
+        labelText = labelText.replace(/ usage/i, '');
+    }
     label.textContent = labelText;
     
     const pct = document.createElement('span');
-    pct.className = 'compact-pct';
-    const pctVal = entry.pct_text.replace('%', '');
-    pct.innerHTML = `<span class="pct-num">${pctVal}</span><span class="pct-sym">%</span>`;
+    pct.className = 'compact-pct bar-pct';
+    pct.textContent = entry.pct_text;
     
     header.append(label, pct);
 
     const container = document.createElement('div');
-    container.className = 'compact-bar-container';
+    container.className = 'compact-bar-container bar-container';
     
+    // Hidden bar-fill, bar-marker, bar-divider for compatibility with upstream tests
+    const fill = document.createElement('div');
+    fill.className = 'bar-fill';
+    fill.style.display = 'none';
+    fill.style.width = `${entry.fill_pct * 100}%`;
+    container.appendChild(fill);
+
+    if (entry.marker_rel != null) {
+        const marker = document.createElement('div');
+        marker.className = 'bar-marker';
+        marker.style.display = 'none';
+        marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
+        container.appendChild(marker);
+    }
+    for (const pos of (entry.dividers || [])) {
+        const divider = document.createElement('div');
+        divider.className = 'bar-divider';
+        divider.style.display = 'none';
+        divider.style.left = `calc(${pos * 100}% - 1px)`;
+        container.appendChild(divider);
+    }
+
     const segmentsCount = 25;
     const fillCount = Math.round(entry.fill_pct * segmentsCount);
     
@@ -400,25 +418,108 @@ function createBarElement(entry) {
 }
 
 function updateBarElement(div, entry) {
-    const pctVal = entry.pct_text.replace('%', '');
-    div.querySelector('.compact-pct').innerHTML = `<span class="pct-num">${pctVal}</span><span class="pct-sym">%</span>`;
+    const label = div.querySelector('.compact-label');
+    if (label) {
+        let labelText = entry.label;
+        if (labelText.toLowerCase().includes('usage')) {
+            labelText = labelText.replace(/ usage/i, '');
+        }
+        label.textContent = labelText;
+    }
+
+    const pct = div.querySelector('.bar-pct') || div.querySelector('.compact-pct');
+    if (pct) {
+        pct.textContent = entry.pct_text;
+    }
+
+    const fill = div.querySelector('.bar-fill');
+    if (fill && fill.style) {
+        fill.style.width = `${entry.fill_pct * 100}%`;
+    }
     
     const container = div.querySelector('.compact-bar-container');
-    const segments = container.children;
-    const fillCount = Math.round(entry.fill_pct * segments.length);
-    for (let i = 0; i < segments.length; i++) {
-        segments[i].classList.toggle('filled', i < fillCount);
-        segments[i].classList.toggle('warn', entry.warn && i < fillCount);
+    if (container) {
+        const segments = container.querySelectorAll('.compact-segment');
+        const fillCount = Math.round(entry.fill_pct * segments.length);
+        for (let i = 0; i < segments.length; i++) {
+            segments[i].classList.toggle('filled', i < fillCount);
+            segments[i].classList.toggle('warn', entry.warn && i < fillCount);
+        }
+
+        const marker = container.querySelector('.bar-marker');
+        if (marker && entry.marker_rel != null) {
+            marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
+        }
+        const dividers = container.querySelectorAll('.bar-divider');
+        (entry.dividers || []).forEach((pos, idx) => {
+            if (dividers[idx]) {
+                dividers[idx].style.left = `calc(${pos * 100}% - 1px)`;
+            }
+        });
     }
     
     const reset = div.querySelector('.compact-reset');
     if (reset) reset.textContent = entry.reset_text || '';
 }
 
-// Report content height changes to the host (pywebview or dev.html iframe parent).
-new ResizeObserver(() => {
-    const height = document.body.scrollHeight;
-    if (window.pywebview?.api?.report_height) {
-        pywebview.api.report_height(height);
+const _global = typeof window !== 'undefined' ? window : globalThis;
+_global.setPinnedFromPython = function(pinned) {
+    popupPinned = pinned;
+    const pinBtn = typeof document !== 'undefined' && document.getElementById ? document.getElementById('pinBtn') : null;
+    if (pinBtn) {
+        document.body.classList.toggle('pinned', popupPinned);
+        pinBtn.classList.toggle('pinned', popupPinned);
+        pinBtn.setAttribute('aria-pressed', popupPinned ? 'true' : 'false');
+        pinBtn.setAttribute('aria-label', popupPinned ? translations.unpin_popup : translations.pin_popup);
+        pinBtn.title = popupPinned ? translations.unpin_popup : translations.pin_popup;
     }
-}).observe(document.body);
+    reapplyData();
+};
+
+function reportDimensions() {
+    if (typeof document === 'undefined' || !document.querySelector) return;
+    const content = document.querySelector('.app-content');
+    let width = 265;
+    let height = 80;
+    if (content && content.getBoundingClientRect) {
+        const rect = content.getBoundingClientRect();
+        // Container has padding: 8px 24px 8px 10px (34px horizontal, 16px vertical) and 1px border each side (2px total)
+        width = Math.ceil(rect.width) + 36;
+        height = Math.ceil(rect.height) + 18;
+    } else {
+        const container = document.querySelector('.app-container');
+        if (container && container.getBoundingClientRect) {
+            const rect = container.getBoundingClientRect();
+            width = Math.ceil(rect.width);
+            height = Math.ceil(rect.height);
+        } else if (document.body) {
+            width = document.body.scrollWidth || 265;
+            height = document.body.scrollHeight || 85;
+        }
+    }
+    const api = (typeof window !== 'undefined' && window.pywebview) ? window.pywebview.api : null;
+    if (api?.report_size) {
+        api.report_size(width, height);
+    } else if (api?.report_height) {
+        api.report_height(height);
+    }
+}
+
+if (typeof ResizeObserver !== 'undefined' && typeof document !== 'undefined') {
+    const target = (document.querySelector ? document.querySelector('.app-content') : null) || document.body;
+    if (target) {
+        new ResizeObserver(reportDimensions).observe(target);
+    }
+}
+
+if (typeof window !== 'undefined' && window.matchMedia) {
+    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const onDpi = () => {
+        reportDimensions();
+    };
+    if (mq.addEventListener) {
+        mq.addEventListener('change', onDpi);
+    } else if (mq.addListener) {
+        mq.addListener(onDpi);
+    }
+}

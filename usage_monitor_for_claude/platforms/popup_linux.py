@@ -78,13 +78,15 @@ class PopupHost:
         """Map, position, focus and finally show the prepared window."""
         self._on_main_loop(self._reveal_on_main_loop)
 
-    def apply_geometry(self, height: int, *, keep_position: bool) -> None:
+    def apply_geometry(self, height: int, *, keep_position: bool, width: int | None = None) -> None:
         """Resize to *height* and remember whether the anchor still applies.
 
         Only the resize happens here.  Positioning is deferred to
         :meth:`reveal`, because a move on an unmapped window is discarded;
         once the window is mapped, the move is applied immediately.
         """
+        if width is not None:
+            self._width = width
         self._height = height
         self._keep_position = keep_position
         self._window.resize(self._width, height)
@@ -147,13 +149,15 @@ class PopupHost:
 
         return True
 
-    def end_drag(self, height: int) -> None:
+    def end_drag(self, height: int, width: int | None = None) -> None:
         """Finish a drag.
 
         GTK reports and consumes logical pixels on both sides, so unlike the
         Windows host there is no cross-monitor DPI correction to make.
         """
         self._dragging = False
+        if width is not None:
+            self._width = width
         self._height = height
 
     def _reveal_on_main_loop(self, gtk_window: Any) -> None:

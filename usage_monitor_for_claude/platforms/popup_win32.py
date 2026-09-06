@@ -64,6 +64,7 @@ class PopupHost:
     def __init__(self, window: Any, width: int) -> None:
         self._window = window
         self._width = width
+        self._height = 0
         self._hwnd = 0
         self._pump_tid = 0
         self._drag_offset = (0, 0)
@@ -83,6 +84,49 @@ class PopupHost:
         """
         self._hwnd = self._window.native.Handle.ToInt32()
 
+        # Set WinForms dark background color to prevent any white edge leaks
+        try:
+            from System.Drawing import ColorTranslator, Size
+            self._window.native.BackColor = ColorTranslator.FromHtml('#1a1a1c')
+            self._window.native.MinimumSize = Size(0, 0)
+        except Exception:
+            pass
+
+        # Apply Windows 11 DWM rounded corners
+        try:
+            val = ctypes.c_int(2)  # DWMWCP_ROUND
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                ctypes.wintypes.HWND(self._hwnd),
+                ctypes.wintypes.DWORD(33),  # DWMWA_WINDOW_CORNER_PREFERENCE
+                ctypes.byref(val),
+                ctypes.sizeof(val),
+            )
+        except Exception:
+            pass
+
+        # Hook DpiChanged for multi-monitor scaling
+        def _on_dpi_changed(sender, e):
+            try:
+                from System.Drawing import Size
+                self._window.native.MinimumSize = Size(0, 0)
+            except Exception:
+                pass
+            scale = e.DeviceDpiNew / _BASELINE_DPI
+            phys_w = int(round(self._width * scale))
+            phys_h = int(round(self._height * scale))
+            rect = ctypes.wintypes.RECT()
+            ctypes.windll.user32.GetWindowRect(self._hwnd, ctypes.byref(rect))
+            ctypes.windll.user32.SetWindowPos(
+                self._hwnd, 0, rect.left, rect.top, phys_w, phys_h,
+                _SWP_NOZORDER | _SWP_NOACTIVATE,
+            )
+            self._apply_region(phys_w, phys_h, scale)
+
+        try:
+            self._window.native.DpiChanged += _on_dpi_changed
+        except Exception:
+            pass
+
         ex_style = ctypes.windll.user32.GetWindowLongW(self._hwnd, _GWL_EXSTYLE)
         ctypes.windll.user32.SetWindowLongW(
             self._hwnd, _GWL_EXSTYLE,
@@ -96,7 +140,15 @@ class PopupHost:
         ex_style = ctypes.windll.user32.GetWindowLongW(self._hwnd, _GWL_EXSTYLE)
         ctypes.windll.user32.SetWindowLongW(self._hwnd, _GWL_EXSTYLE, ex_style & ~_WS_EX_LAYERED)
 
-    def apply_geometry(self, height: int, *, keep_position: bool) -> None:
+    def _apply_region(self, phys_w: int, phys_h: int, scale: float) -> None:
+        try:
+            corner_r = int(round(12 * scale))
+            rgn = ctypes.windll.gdi32.CreateRoundRectRgn(0, 0, phys_w + 1, phys_h + 1, corner_r, corner_r)
+            ctypes.windll.user32.SetWindowRgn(self._hwnd, rgn, True)
+        except Exception:
+            pass
+
+    def apply_geometry(self, height: int, *, keep_position: bool, width: int | None = None) -> None:
         """Resize to *height* and, unless *keep_position*, move to the tray anchor.
 
         pywebview 6.x ``resize()`` applies DPI scaling internally (consistent
@@ -105,16 +157,22 @@ class PopupHost:
         correct logical position against the physical work-area coordinates
         returned by Win32.
         """
+        if width is not None:
+            self._width = width
+        self._height = height
+
         scale = self._scale()
         physical_width = int(self._width * scale)
         physical_height = int(height * scale)
 
         self._window.resize(self._width, height)
         if keep_position:
+            self._apply_region(physical_width, physical_height, scale)
             return
 
         x, y = self._anchor(physical_width, physical_height, scale)
         self._window.move(x, y)
+        self._apply_region(physical_width, physical_height, scale)
 
     def watch_dismiss(self, should_dismiss: Callable[[], bool], is_running: Callable[[], bool]) -> None:
         """Block until the popup should close or :meth:`stop_watch` is called.
@@ -263,7 +321,7 @@ class PopupHost:
 
         return True
 
-    def end_drag(self, height: int) -> None:
+    def end_drag(self, height: int, width: int | None = None) -> None:
         """Finish a drag and correct the size after a cross-monitor DPI change.
 
         Crossing a monitor boundary triggers Windows' Per-Monitor-V2 rescale,
@@ -275,6 +333,30 @@ class PopupHost:
         self._dragging = False
         if not self._hwnd:
             return
+
+        if width is not None:
+            self._width = width
+        self._height = height
+
+        rect = ctypes.wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(self._hwnd, ctypes.byref(rect))
+
+        try:
+            from System.Drawing import Point, Size
+            self._window.native.Location = Point(rect.left, rect.top)
+            self._window.native.MinimumSize = Size(0, 0)
+        except Exception:
+            pass
+
+        scale = self._scale()
+        phys_w = int(round(self._width * scale))
+        phys_h = int(round(height * scale))
+
+        ctypes.windll.user32.SetWindowPos(
+            self._hwnd, 0, rect.left, rect.top, phys_w, phys_h,
+            _SWP_NOZORDER | _SWP_NOACTIVATE,
+        )
+        self._apply_region(phys_w, phys_h, scale)
 
         if self._dpi() != self._drag_start_dpi:
             self._window.resize(self._width, height)
