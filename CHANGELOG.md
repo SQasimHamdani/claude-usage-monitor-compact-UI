@@ -10,9 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The Extra Usage section in the detail popup now also shows the prepaid usage credits you have left to pay for it, so you can tell whether work can continue instead of only seeing what has been spent (thanks to [@TheConfax](https://github.com/TheConfax) for the contribution)
+- **Claude Accounts** tray menu (Windows) - save several Claude logins and switch between them with one click, no browser re-login. Each account shows its plan and current 5-hour / 7-day usage right in the menu, and if Claude Code is running, the switch waits and happens when it exits. Saved accounts are kept encrypted by the companion [ClaudeSwitch](https://github.com/sqasimhamdani/claudeswitch) package; [PRIVACY.md](PRIVACY.md) lists where
+- A **Pro** or **Max** badge next to the status text shows which plan the signed-in account is on. A Max account also gets an animated multicolor edge glow around the popup, so it is recognizable at a glance - click the badge to stop the animation and fall back to a static Claude-orange border
 
 ### Changed
 
+- Usage bars now take a single color for their whole filled part, based on how full they are: green when low, Claude orange at 50%, red at 100%, blending in between. Any usage above zero lights at least one segment
+- The compact popup shows only the Session and Weekly bars; per-model limits (Sonnet, Opus, Fable) and other quota types no longer appear in it, though they still count for the tray icon and alerts
+- The popup's bars no longer turn red when usage runs ahead of the clock - the bar color now only reflects how full the limit is
+- The tray menu's project link now points to this fork's repository
 - Polling no longer stops while the computer is idle or locked - it continues on a 15-minute cadence, configurable via the new [`idle_interval`](docs/configuration.md#polling-intervals) setting. Quota resets, threshold alerts and event commands now fire on time on an unattended computer, and switching your Claude account is picked up right away instead of at your next keystroke
 - The expired-session and missing-token messages now name the Claude Code CLI and the command that fixes it (`claude auth login`) - previously they asked you to open Claude Code, which helps nobody whose Claude Code is already open and whose CLI login is the part that expired (thanks to [@mjtlsnelling-art](https://github.com/mjtlsnelling-art) for reporting [#89](https://github.com/jens-duttke/usage-monitor-for-claude/issues/89))
 

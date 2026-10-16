@@ -5,6 +5,11 @@ let textTimerId = null;
 let popupPinned = false;
 let compactHide = [];
 let lastData = null;
+let maxCalm = false;
+
+// The compact popup shows only the session and weekly bars; per-model limits
+// (Sonnet, Opus, Fable, ...) and any future quota types stay out of it.
+const COMPACT_BAR_KEYS = ['five_hour', 'seven_day'];
 
 /**
  * Set CSS custom properties for theme colors and inject translation strings.
@@ -58,7 +63,14 @@ function init(config) {
         installRows: document.getElementById('installRows'),
         statusSection: document.getElementById('statusSection'),
         statusText: document.getElementById('statusText'),
+        planBadge: document.getElementById('planBadge'),
+        appContainer: document.querySelector('.app-container'),
     };
+    els.planBadge.addEventListener('click', () => {
+        if (els.planBadge.classList.contains('plan-max')) {
+            toggleMaxCalm();
+        }
+    });
 
     updateData(config.data);
     requestAnimationFrame(() => document.body.classList.add('open'));
@@ -174,11 +186,7 @@ function updateData(data) {
         els.planRow.style.display = data.profile.plan ? '' : 'none';
     }
 
-    const usage = (data.usage || []).filter((entry) => 
-        !compactHidden(entry.key) && 
-        !entry.label.toLowerCase().includes('nimbus') &&
-        !entry.label.toLowerCase().includes('quill')
-    );
+    const usage = (data.usage || []).filter((entry) => COMPACT_BAR_KEYS.includes(entry.key) && !compactHidden(entry.key));
     const hasUsage = !!usage.length;
     els.usageSection.classList.toggle('visible', hasUsage);
     if (hasUsage) {
@@ -218,8 +226,42 @@ function updateData(data) {
         }));
     }
 
+    updatePlanBadge(data.plan);
     updateStatus(data.status);
     reportDimensions();
+}
+
+/**
+ * Show the subscription-tier badge next to the status text.
+ *
+ * Only Pro and Max are called out - Max additionally gets the animated
+ * glow border on the whole popup, so it reads as unmistakable at a glance.
+ * Any other value (free tier, team/enterprise, or none) shows nothing.
+ *
+ * @param {string|null} plan - 'pro', 'max', or null/other.
+ */
+function updatePlanBadge(plan) {
+    const normalized = typeof plan === 'string' ? plan.toLowerCase() : null;
+    const isMax = normalized === 'max';
+    const isPro = normalized === 'pro';
+    const calm = isMax && maxCalm;
+
+    els.planBadge.textContent = isMax ? 'Max' : (isPro ? 'Pro' : '');
+    els.planBadge.classList.toggle('visible', isMax || isPro);
+    els.planBadge.classList.toggle('plan-max', isMax);
+    els.planBadge.classList.toggle('calm', calm);
+    els.appContainer.classList.toggle('plan-max', isMax);
+    els.appContainer.classList.toggle('calm', calm);
+}
+
+/**
+ * Switch the Max glow between animated and calm (static Claude orange).
+ *
+ * Bound to the Max badge.  The choice lives only for this popup window.
+ */
+function toggleMaxCalm() {
+    maxCalm = !maxCalm;
+    reapplyData();
 }
 
 /**
@@ -351,7 +393,39 @@ function updateUsageBars(entries) {
             updateBarElement(els.usageBars.children[i], entries[i]);
         }
     }
-}function createBarElement(entry) {
+}
+/**
+ * Colour for a usage level: green when low, Claude orange at half, red when full.
+ *
+ * The whole bar takes this one colour, so it reads as a single status.  The
+ * blend runs through HSL so green-to-orange passes through yellow, not mud.
+ *
+ * @param {number} fraction - Usage from 0 to 1.
+ * @returns {string} CSS colour.
+ */
+function usageColor(fraction) {
+    const stops = [
+        { h: 140, s: 50, l: 50 },  // green
+        { h: 15, s: 63, l: 60 },   // Claude orange (#d97757)
+        { h: -2, s: 74, l: 59 },   // red
+    ];
+    const t = Math.max(0, Math.min(1, fraction));
+    const scaled = t * (stops.length - 1);
+    const lower = Math.min(Math.floor(scaled), stops.length - 2);
+    const mix = scaled - lower;
+    const from = stops[lower];
+    const to = stops[lower + 1];
+    const lerp = (a, b) => a + (b - a) * mix;
+
+    return `hsl(${lerp(from.h, to.h).toFixed(1)}, ${lerp(from.s, to.s).toFixed(1)}%, ${lerp(from.l, to.l).toFixed(1)}%)`;
+}
+
+/** Number of lit segments; any non-zero usage lights at least one. */
+function filledSegmentCount(fillPct, count) {
+    return fillPct > 0 ? Math.max(1, Math.round(fillPct * count)) : 0;
+}
+
+function createBarElement(entry) {
     const div = document.createElement('div');
     div.className = 'compact-bar-wrapper';
     div.dataset.key = entry.key;
@@ -399,12 +473,15 @@ function updateUsageBars(entries) {
     }
 
     const segmentsCount = 25;
-    const fillCount = Math.round(entry.fill_pct * segmentsCount);
-    
+    const fillCount = filledSegmentCount(entry.fill_pct, segmentsCount);
+
     for (let i = 0; i < segmentsCount; i++) {
         const seg = document.createElement('div');
         seg.className = 'compact-segment';
-        if (i < fillCount) seg.classList.add('filled');
+        if (i < fillCount) {
+            seg.classList.add('filled');
+            seg.style.background = usageColor(entry.fill_pct);
+        }
         if (entry.warn && i < fillCount) seg.classList.add('warn');
         container.appendChild(seg);
     }
@@ -440,9 +517,10 @@ function updateBarElement(div, entry) {
     const container = div.querySelector('.compact-bar-container');
     if (container) {
         const segments = container.querySelectorAll('.compact-segment');
-        const fillCount = Math.round(entry.fill_pct * segments.length);
+        const fillCount = filledSegmentCount(entry.fill_pct, segments.length);
         for (let i = 0; i < segments.length; i++) {
             segments[i].classList.toggle('filled', i < fillCount);
+            segments[i].style.background = i < fillCount ? usageColor(entry.fill_pct) : '';
             segments[i].classList.toggle('warn', entry.warn && i < fillCount);
         }
 

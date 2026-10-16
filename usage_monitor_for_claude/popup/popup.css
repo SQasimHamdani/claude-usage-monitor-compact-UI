@@ -37,6 +37,8 @@ body.open { opacity: 1; }
     display: inline-flex;
     flex-direction: column;
     width: fit-content;
+    position: relative;
+    z-index: 1;
 }
 
 #pinBtn {
@@ -153,3 +155,104 @@ body.pinned .app-container:active {
 }
 
 section.stale { opacity: 0.5; }
+
+/* Subscription-tier badge, shown right after the status text. */
+.plan-badge {
+    display: none;
+    margin-left: 5px;
+    padding: 2px 7px;
+    border: 0;
+    border-radius: 7px;
+    font: inherit;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    line-height: 1.2;
+    vertical-align: middle;
+    background: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.8);
+}
+.plan-badge.visible {
+    display: inline-block;
+}
+.plan-badge.plan-max {
+    cursor: pointer;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    background: linear-gradient(120deg, #f2542d, #e03d7f, #7b5cf0);
+}
+.plan-badge.plan-max.calm {
+    background: #d97757;
+    text-shadow: none;
+}
+
+/*
+ * Max-plan glow, in the spirit of the Siri edge light: colour travels around
+ * the popup's own border (the shape never moves), with a soft inner glow
+ * that breathes.  A single registered angle property drives both layers;
+ * the glow runs against it so the two layers drift past each other like a
+ * wave.  The ring is repainted each frame, but it is a few hundred pixels
+ * of 2px edge - negligible next to the cost of the popup itself.
+ * Clicking the Max badge adds `.calm`: no animation, static Claude orange.
+ */
+@property --max-angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: true;
+}
+.app-container.plan-max {
+    --max-angle: 0deg;
+    --max-colors: #ff7a3d, #ff3d81, #b84dff, #3d7bff, #29d3ff, #ff7a3d;
+    isolation: isolate;
+    animation: plan-max-flow 7s linear infinite;
+}
+.app-container.plan-max::before,
+.app-container.plan-max::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+}
+/* Crisp 2px ring on the border. */
+.app-container.plan-max::before {
+    padding: 2px;
+    opacity: 0.6;
+    background: conic-gradient(from var(--max-angle), var(--max-colors));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+}
+/* Soft light fading inward from every edge. */
+.app-container.plan-max::after {
+    background: conic-gradient(from calc(var(--max-angle) * -1), var(--max-colors));
+    -webkit-mask:
+        linear-gradient(to bottom, #000, transparent 10px) top / 100% 10px no-repeat,
+        linear-gradient(to top, #000, transparent 10px) bottom / 100% 10px no-repeat,
+        linear-gradient(to right, #000, transparent 10px) left / 10px 100% no-repeat,
+        linear-gradient(to left, #000, transparent 10px) right / 10px 100% no-repeat;
+    opacity: 0.33;
+    animation: plan-max-breathe 3.6s ease-in-out infinite alternate;
+}
+@keyframes plan-max-flow {
+    to { --max-angle: 360deg; }
+}
+@keyframes plan-max-breathe {
+    from { opacity: 0.21; }
+    to { opacity: 0.42; }
+}
+
+/* Calm: static Claude orange, nothing moving. */
+.app-container.plan-max.calm {
+    animation: none;
+    --max-colors: #d97757, #d97757;
+}
+.app-container.plan-max.calm::after {
+    animation: none;
+    opacity: 0.18;
+}
+@media (prefers-reduced-motion: reduce) {
+    .app-container.plan-max,
+    .app-container.plan-max::after { animation: none; }
+}

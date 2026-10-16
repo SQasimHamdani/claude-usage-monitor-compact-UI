@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 import webview  # type: ignore[import-untyped]  # no type stubs available
 
 from . import __version__
+from .api import read_subscription_type
 from .claude_cli import CHANGELOG_URL, find_installations
 from .formatting import divider_positions, elapsed_pct, expand_popup_fields, field_period, format_credits, popup_label, time_until
 from .i18n import T
@@ -173,6 +174,11 @@ def _snapshot_to_dict(
         'extra': extra,
         'installations': installations,
         'status': status,
+        # The credentials file's own subscription tier (pro/max), not the
+        # organization type already carried in 'profile' - read fresh each
+        # time rather than cached, since it is a single local file read, the
+        # same file read_access_token() already reads every poll.
+        'plan': read_subscription_type(),
     }
 
 

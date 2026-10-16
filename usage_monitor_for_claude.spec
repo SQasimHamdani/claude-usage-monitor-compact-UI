@@ -21,6 +21,7 @@ a = Analysis(
         'usage_monitor_for_claude.platforms.win32',
         'usage_monitor_for_claude.platforms.instance_win32',
         'usage_monitor_for_claude.platforms.popup_win32',
+        'usage_monitor_for_claude.platforms.accounts_win32',
         'pystray._win32',
         'pystray._util',
         'pystray._util.win32',
@@ -40,6 +41,7 @@ a = Analysis(
         'usage_monitor_for_claude.platforms.linux',
         'usage_monitor_for_claude.platforms.instance_linux',
         'usage_monitor_for_claude.platforms.popup_linux',
+        'usage_monitor_for_claude.platforms.accounts_linux',
         'fcntl', 'gi',
         'unittest', 'test',
         'xmlrpc', 'pydoc',
@@ -47,7 +49,9 @@ a = Analysis(
         'PIL._avif', 'PIL._webp',
         'PIL._imagingcms', 'PIL._imagingmath', 'PIL._imagingtk', 'PIL._imagingmorph',
         'setuptools', '_distutils_hack',
-        'asyncio', 'concurrent',
+        # concurrent.futures is a transitive dependency of claudeswitch.usage
+        # (parallel per-profile usage fetches) - do not exclude it.
+        'asyncio',
         'multiprocessing',
         'xml', 'tomllib',
         'sqlite3',

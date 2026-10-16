@@ -4,3 +4,6 @@ requests
 truststore
 pywebview
 pyinstaller
+# Multi-account switching backend (Windows only); sibling project built for
+# this integration, not yet published to PyPI.
+-e ../ClaudeSwitch[tray]

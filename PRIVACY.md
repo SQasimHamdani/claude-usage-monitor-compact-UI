@@ -51,6 +51,21 @@ application changes on your system follows - there is nothing else.
 Monitoring a second Claude account (`--config-dir`) adds a suffix to those names, so each account
 gets its own entry.
 
+## Multi-Account Switching (Windows)
+
+If you use the **Claude Accounts** tray menu to save and switch between multiple Claude logins, a
+separate companion project, [ClaudeSwitch](https://github.com/sqasimhamdani/claudeswitch), writes
+the following under `%LOCALAPPDATA%\ClaudeSwitch\`:
+
+- `store.json` - the list of saved profile names and emails (no secrets)
+- `profiles\<name>\profile.bin` - each account's OAuth tokens, encrypted with Windows DPAPI and
+  tied to your Windows user account
+- `log\claudeswitch.log` - a rotating log with tokens redacted
+
+This data is only created once you use the account-switching feature. It stays on your machine,
+is never sent anywhere beyond the same `api.anthropic.com` usage lookup described above, and can be
+fully removed by uninstalling this feature (see that project's own documentation for details).
+
 ## Claude Code Installation
 
 When the OAuth token has expired, the application runs `claude update` so that the Claude Code CLI
@@ -64,4 +79,4 @@ The application does not integrate with any analytics, tracking, advertising, or
 ## Contact
 
 For questions about this privacy policy, please open an issue at
-https://github.com/jens-duttke/usage-monitor-for-claude/issues
+https://github.com/SQasimHamdani/claude-usage-monitor-compact-UI/issues

@@ -86,6 +86,7 @@ const LANGS = [
 const PRESETS = {
     full: {
         profile: { email: 'user@example.com', plan: 'Max (Team)' },
+        subscription: 'max',  // exercises the Max badge + animated glow border
         usage: [
             { unit: 'hour', suffix: '5hr', pct: 42, warn: false,
               reset: { kind: 'in', duration: '2h 30m', clock: '14:30' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
@@ -117,6 +118,7 @@ const PRESETS = {
     },
     error: {
         profile: { email: 'user@example.com', plan: 'Max' },
+        subscription: 'pro',  // exercises the plain Pro badge (no glow border)
         usage: [
             { unit: 'hour', suffix: '5hr', pct: 95, warn: true,
               reset: { kind: 'in', duration: '12m', clock: '12:12' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.96 },
@@ -211,7 +213,7 @@ function resolveData(name, loc) {
         status = { text: loc[status.staticKey], is_error: status.is_error, refreshing: status.refreshing };
     }
 
-    return { profile: preset.profile, usage, extra, installations: preset.installations || [], status };
+    return { profile: preset.profile, usage, extra, installations: preset.installations || [], status, plan: preset.subscription || null };
 }
 
 // Try both layouts: server rooted at the repo (dev.html under
@@ -245,13 +247,19 @@ async function applyLanguage(code) {
         begin_drag() { return Promise.resolve(true); },
         drag() { return Promise.resolve(true); },
         end_drag() {},
+        report_size(w, h) {
+            // The real window resizes to its content; mirror that here.
+            iframe.style.width = w + 'px';
+            iframe.style.height = h + 'px';
+            iframe.style.visibility = 'visible';
+        },
         report_height(h) {
             iframe.style.height = h + 'px';
             iframe.style.visibility = 'visible';
         } } };
     // Demo set so toggling the pin button previews compact hiding of both
     // whole sections and an individual usage bar.
-    const compactHide = ['account', 'extra_usage', 'claude_code', 'status', 'seven_day_opus'];
+    const compactHide = ['account', 'extra_usage', 'claude_code'];
     win().init({ colors: COLORS, t: buildTranslations(currentLocale), app_version: '1.13.0', compact_hide: compactHide, data: resolveData(currentPreset, currentLocale) });
 }
 

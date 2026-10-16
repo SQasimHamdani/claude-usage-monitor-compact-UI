@@ -24,7 +24,7 @@ from .i18n import T
 
 __all__ = [
     'API_URL_USAGE', 'API_URL_PROFILE', 'API_URL_PREPAID_CREDITS', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CREDENTIALS',
-    'read_access_token', 'api_headers', 'fetch_usage', 'fetch_profile', 'fetch_prepaid_credits',
+    'read_access_token', 'read_subscription_type', 'api_headers', 'fetch_usage', 'fetch_profile', 'fetch_prepaid_credits',
 ]
 
 # API endpoints & credentials
@@ -46,23 +46,42 @@ truststore.inject_into_ssl()
 
 def read_access_token() -> str | None:
     """Read the current access token from the Claude credentials file."""
+    return _read_oauth_field('accessToken')
+
+
+def read_subscription_type() -> str | None:
+    """Read the current account's subscription tier (e.g. ``'pro'``, ``'max'``) from the credentials file."""
+    return _read_oauth_field('subscriptionType')
+
+
+def _read_oauth_field(field: str) -> str | None:
+    """Read a single field from the ``claudeAiOauth`` block of the credentials file."""
     if not CLAUDE_CREDENTIALS.exists():
         return None
 
     try:
         creds = json.loads(CLAUDE_CREDENTIALS.read_text())
         oauth = creds.get('claudeAiOauth') if isinstance(creds, dict) else None
-        return oauth.get('accessToken') or None if isinstance(oauth, dict) else None
+        return oauth.get(field) or None if isinstance(oauth, dict) else None
     except (OSError, ValueError):
         # OSError also covers a read racing a concurrent write (the file is
-        # rewritten on token rotation/account switch); treat it as "no token
+        # rewritten on token rotation/account switch); treat it as "missing
         # right now" rather than letting it crash a caller.
         return None
 
 
-def api_headers() -> dict[str, str] | None:
-    """Return auth headers for the Anthropic OAuth API, or None."""
-    token = read_access_token()
+def api_headers(token: str | None = None) -> dict[str, str] | None:
+    """Return auth headers for the Anthropic OAuth API, or None.
+
+    Parameters
+    ----------
+    token : str or None
+        Access token to use instead of the live credentials file - lets a
+        caller query the API on behalf of a token it holds separately (e.g.
+        a saved account profile) without that token ever being the one this
+        app treats as "the" logged-in account.
+    """
+    token = token or read_access_token()
     if not token:
         return None
 
@@ -74,9 +93,15 @@ def api_headers() -> dict[str, str] | None:
     }
 
 
-def fetch_usage() -> dict[str, Any]:
-    """Fetch usage data from the Anthropic OAuth usage API."""
-    headers = api_headers()
+def fetch_usage(token: str | None = None) -> dict[str, Any]:
+    """Fetch usage data from the Anthropic OAuth usage API.
+
+    Parameters
+    ----------
+    token : str or None
+        See :func:`api_headers`.
+    """
+    headers = api_headers(token)
     if not headers:
         return {'error': T['no_token']}
 
@@ -109,9 +134,15 @@ def fetch_usage() -> dict[str, Any]:
         return {'error': T['connection_error']}
 
 
-def fetch_profile() -> dict[str, Any] | None:
-    """Fetch account profile from the Anthropic OAuth profile API."""
-    headers = api_headers()
+def fetch_profile(token: str | None = None) -> dict[str, Any] | None:
+    """Fetch account profile from the Anthropic OAuth profile API.
+
+    Parameters
+    ----------
+    token : str or None
+        See :func:`api_headers`.
+    """
+    headers = api_headers(token)
     if not headers:
         return None
 

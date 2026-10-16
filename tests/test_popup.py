@@ -560,10 +560,11 @@ class TestSnapshotToDict(unittest.TestCase):
 
     # -- top-level dict structure --
 
-    def test_all_top_level_keys_present(self):
-        """Result always has profile, usage, extra, installations, status."""
+    @patch('usage_monitor_for_claude.popup.read_subscription_type', return_value=None)
+    def test_all_top_level_keys_present(self, _mock_plan):
+        """Result always has profile, usage, extra, installations, status, plan."""
         result = _snapshot_to_dict(_snap(), installations=[])
-        self.assertEqual(set(result.keys()), {'profile', 'usage', 'extra', 'installations', 'status'})
+        self.assertEqual(set(result.keys()), {'profile', 'usage', 'extra', 'installations', 'status', 'plan'})
 
 
 # ---------------------------------------------------------------------------
@@ -632,12 +633,13 @@ class TestInitConfig(unittest.TestCase):
         config = _init_config(_snap())
         self.assertEqual(config['app_version'], __version__)
 
-    def test_data_is_snapshot_to_dict_output(self):
+    @patch('usage_monitor_for_claude.popup.read_subscription_type', return_value=None)
+    def test_data_is_snapshot_to_dict_output(self, _mock_plan):
         """The data key contains the output of _snapshot_to_dict."""
         snap = _snap(profile={'account': {'email': 'a@b.com'}, 'organization': {}})
         config = _init_config(snap)
         self.assertEqual(config['data']['profile']['email'], 'a@b.com')
-        self.assertEqual(set(config['data'].keys()), {'profile', 'usage', 'extra', 'installations', 'status'})
+        self.assertEqual(set(config['data'].keys()), {'profile', 'usage', 'extra', 'installations', 'status', 'plan'})
 
 
 # ---------------------------------------------------------------------------

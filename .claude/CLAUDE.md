@@ -89,20 +89,6 @@ Prioritize readability and auditability - users handle credentials and must be a
 - `_polling_throttled()` - not `_is_user_away()` - decides that cadence. An open popup holds the normal cadence however long ago the last input was, because its numbers are on screen; `_screen_hidden()` (lock screen or screensaver) overrides that, since nobody reads a popup behind it. `_is_user_away()` keeps its own meaning for deferring notifications, where an idle machine is reason enough to hold a toast back
 - An unconfirmed reset (`_reset_overdue()`: a `resets_at` still in the past) suspends the away floor until the API reports the new window. This is derived from the response, not tracked in a flag - a quota that was at 0% before its reset produces no usage drop, so a "reset pending" flag cleared by a drop would never clear again
 
-## Security & Transparency
-- All URLs and API endpoints as top-level constants - no dynamic URL construction
-- `API_URL_PREPAID_CREDITS` is the one endpoint carrying a path parameter, and it stays the only one: the prepaid balance is addressed per organization, so the uuid cannot be known at build time. It is a single constant with one `{org_uuid}` placeholder, and `fetch_prepaid_credits()` matches the value against `_ORG_UUID_PATTERN` before substituting it, abandoning the request when it does not match - so the substituted segment can only ever be hex digits and dashes, never a slash, a dot-dot or a scheme. The pattern is anchored `\A...\Z`, not `^...$`: `$` also matches before a trailing newline, and `tests/test_api.py` covers exactly that case. A future endpoint needing a path parameter follows this shape - one constant, one placeholder, validated before substitution - or it does not ship
-- Network communication exclusively with `api.anthropic.com` - no other destinations (the one exception is the Windows chain engine's own traffic, see "TLS Verification")
-- Credentials used only in HTTP Authorization headers - never log, store, or transmit elsewhere
-- The app writes no files **on Windows**, where the only system state it changes is two `HKCU` registry values: the notification identity and the autostart entry (both in `platforms/win32.py`). On Linux the same two concerns need files: the autostart entry is an XDG `.desktop` file in `~/.config/autostart/`, and the single-instance guard holds a `0600` lock file in `$XDG_RUNTIME_DIR`. Nothing else is ever written
-- Any new persistent write needs a matching update in `README.md` and `PRIVACY.md`, per platform. The list of what the app touches is part of the audit story and must never become inaccurate
-- Security-critical code (credentials, API calls) isolated in `api.py` - the only module handling credentials. It is platform-neutral and must stay that way
-- No `eval()`, `exec()`, `compile()`, or dynamic imports - no dynamic code execution
-- No obfuscation - no base64-encoded strings, no encoded URLs or tokens
-- Modular package architecture in `usage_monitor_for_claude/` - small focused modules are easier to audit than one large file
-- Pure data files (translations, config) stay separate - they contain no logic or credential access
-- Minimal, well-known dependencies only (e.g., requests, Pillow, pystray)
-
 ## TLS Verification
 - Server certificates are verified against the Windows certificate store through `truststore` (`truststore.inject_into_ssl()` at module level in `api.py`), not against the CA bundle shipped with `requests`. A corporate SSL-inspection proxy whose root certificate arrives via group policy is trusted like in the browser; with the bundle alone the app fails behind such a proxy, and that failure used to surface as a plain "could not connect"
 - Deliberately always on, not a setting: whoever can add a root to the Windows store already controls the machine and can read the credentials file directly, so an opt-in would add a setting without adding protection. `PRIVACY.md` states this trust model - keep both in sync

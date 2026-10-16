@@ -30,7 +30,9 @@ def _make_app(thresholds: list[float] | None = None) -> UsageMonitorForClaude:
         thresholds = [80, 95]
     with patch('usage_monitor_for_claude.app.pystray'), \
          patch('usage_monitor_for_claude.app.create_icon_image'), \
-         patch('usage_monitor_for_claude.app.taskbar_uses_light_theme', return_value=False):
+         patch('usage_monitor_for_claude.app.taskbar_uses_light_theme', return_value=False), \
+         patch('usage_monitor_for_claude.app.SwitcherService'), \
+         patch('usage_monitor_for_claude.app.accounts_supported', return_value=False):
         app = UsageMonitorForClaude()
     app.icon = MagicMock()
     # Patches active for the app's lifetime, stopped by _cleanup.  The presence

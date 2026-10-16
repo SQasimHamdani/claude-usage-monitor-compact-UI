@@ -26,6 +26,7 @@ from .platforms import (
     is_screensaver_running, is_workstation_locked, set_autostart, show_error_box, sync_autostart_path,
     taskbar_uses_light_theme, watch_theme_change,
 )
+from .platforms.accounts import SwitcherService, accounts_supported, build_accounts_menu, start_usage_cache_refresh
 from .settings import (
     ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_INTERVAL, IDLE_PAUSE,
     NOTIFY_CLAUDE_UPDATE, ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND, POLL_ERROR, POLL_FAST,
@@ -137,36 +138,52 @@ class UsageMonitorForClaude:
         # instances (one per Claude account) can be told apart.
         self._tooltip_prefix = '' if is_default_config_dir() else f'[{effective_config_dir().name}] '
 
+        # Multi-account switching: a separate project (claudeswitch) owns the
+        # encrypted profile store, the atomic live-file swap and the
+        # session-running guard.  notify/on_change close over self.icon by
+        # reference, so they resolve correctly once it is assigned below.
+        self.account_switcher = SwitcherService(
+            notify=lambda title, msg: self.icon.notify(msg, title),
+            on_change=lambda: self.icon.update_menu(),
+        )
+        self._stop_usage_cache_refresh: Any = None
+
+        menu_items: list[Any] = [
+            pystray.MenuItem(T['menu_show'], self.on_show_popup, default=True),
+            pystray.MenuItem(
+                T['menu_quick_action'], self.on_run_quick_action,
+                visible=self._quick_action_menu_visible,
+            ),
+        ]
+        if accounts_supported():
+            menu_items.append(build_accounts_menu(self.account_switcher, T))
+        menu_items += [
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                T['autostart'], self.on_toggle_autostart,
+                checked=lambda item: is_autostart_enabled(),
+                visible=autostart_supported(),
+            ),
+            pystray.MenuItem(T['test_commands'], pystray.Menu(
+                pystray.MenuItem(T['test_reset_5h'], self.on_test_reset_5h, enabled=bool(ON_RESET_COMMAND)),
+                pystray.MenuItem(T['test_reset_7d'], self.on_test_reset_7d, enabled=bool(ON_RESET_COMMAND)),
+                pystray.MenuItem(T['test_threshold_5h'], self.on_test_threshold_5h, enabled=bool(ON_THRESHOLD_COMMAND)),
+                pystray.MenuItem(T['test_threshold_7d'], self.on_test_threshold_7d, enabled=bool(ON_THRESHOLD_COMMAND)),
+                pystray.MenuItem(T['test_startup'], self.on_test_startup, enabled=bool(ON_STARTUP_COMMAND)),
+                pystray.MenuItem(T['test_quick_action'], self.on_test_quick_action, enabled=bool(QUICK_ACTION_COMMAND)),
+            ), enabled=bool(ON_RESET_COMMAND or ON_STARTUP_COMMAND or ON_THRESHOLD_COMMAND or QUICK_ACTION_COMMAND)),
+            pystray.MenuItem(T['restart'], self.on_restart),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(T['menu_project'], self.on_open_project),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(T['quit'], self.on_quit),
+        ]
+
         self.icon = pystray.Icon(
             'usage_monitor',
             icon=create_icon_image(0, 0, self._light_taskbar),
             title=self._tooltip_prefix + T['loading'],
-            menu=pystray.Menu(
-                pystray.MenuItem(T['menu_show'], self.on_show_popup, default=True),
-                pystray.MenuItem(
-                    T['menu_quick_action'], self.on_run_quick_action,
-                    visible=self._quick_action_menu_visible,
-                ),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(
-                    T['autostart'], self.on_toggle_autostart,
-                    checked=lambda item: is_autostart_enabled(),
-                    visible=autostart_supported(),
-                ),
-                pystray.MenuItem(T['test_commands'], pystray.Menu(
-                    pystray.MenuItem(T['test_reset_5h'], self.on_test_reset_5h, enabled=bool(ON_RESET_COMMAND)),
-                    pystray.MenuItem(T['test_reset_7d'], self.on_test_reset_7d, enabled=bool(ON_RESET_COMMAND)),
-                    pystray.MenuItem(T['test_threshold_5h'], self.on_test_threshold_5h, enabled=bool(ON_THRESHOLD_COMMAND)),
-                    pystray.MenuItem(T['test_threshold_7d'], self.on_test_threshold_7d, enabled=bool(ON_THRESHOLD_COMMAND)),
-                    pystray.MenuItem(T['test_startup'], self.on_test_startup, enabled=bool(ON_STARTUP_COMMAND)),
-                    pystray.MenuItem(T['test_quick_action'], self.on_test_quick_action, enabled=bool(QUICK_ACTION_COMMAND)),
-                ), enabled=bool(ON_RESET_COMMAND or ON_STARTUP_COMMAND or ON_THRESHOLD_COMMAND or QUICK_ACTION_COMMAND)),
-                pystray.MenuItem(T['restart'], self.on_restart),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(T['menu_project'], self.on_open_project),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(T['quit'], self.on_quit),
-            ),
+            menu=pystray.Menu(*menu_items),
         )
 
         # Only wired up when a command is configured, so the platform's own
@@ -293,6 +310,9 @@ class UsageMonitorForClaude:
 
     def on_quit(self, icon: Any = None, item: Any = None) -> None:
         self.running = False
+        self.account_switcher.stop()
+        if self._stop_usage_cache_refresh is not None:
+            self._stop_usage_cache_refresh()
         self.icon.stop()
 
     # Popup
@@ -1038,6 +1058,9 @@ class UsageMonitorForClaude:
             if not api_headers():
                 icon.notify(f"{T['warn_no_token']}\n{T['warn_login']}", T['popup_title'])
             threading.Thread(target=watch_theme_change, args=(self._on_theme_changed,), daemon=True).start()
+            self.account_switcher.start_background_sync()
+            if accounts_supported():
+                self._stop_usage_cache_refresh = start_usage_cache_refresh(self.account_switcher)
             self.poll_loop()
         except Exception:
             crash_log(traceback.format_exc())
