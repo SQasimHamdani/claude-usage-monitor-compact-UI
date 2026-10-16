@@ -420,6 +420,77 @@ function usageColor(fraction) {
     return `hsl(${lerp(from.h, to.h).toFixed(1)}, ${lerp(from.s, to.s).toFixed(1)}%, ${lerp(from.l, to.l).toFixed(1)}%)`;
 }
 
+const BAR_CSS_WIDTH = 110;
+const BAR_CSS_HEIGHT = 9;
+
+/**
+ * Pixel layout of a segmented bar for a given display scale.
+ *
+ * Everything is worked out in whole device pixels: a segment is about 2 CSS
+ * px wide and the gap about 1, each rounded once to an integer, and the
+ * segment count is whatever fits.  Every segment and every gap is therefore
+ * exactly the same size, at any scale (100%, 125%, 150%, ...).  CSS-pixel
+ * layout cannot promise that - at a fractional scale the browser rounds each
+ * edge separately, which is what made the gaps uneven.  The bar may end a
+ * few device pixels short of its nominal width; that is invisible, while
+ * uneven gaps are not.
+ *
+ * @param {number} dpr - Device pixels per CSS pixel.
+ * @returns {{segmentWidth: number, gap: number, count: number, width: number, height: number}} Sizes in device pixels.
+ */
+function barLayout(dpr) {
+    const scale = dpr > 0 ? dpr : 1;
+    const segmentWidth = Math.max(1, Math.round(2 * scale));
+    const gap = Math.max(1, Math.round(scale));
+    const available = Math.floor(BAR_CSS_WIDTH * scale);
+    const count = Math.max(1, Math.floor((available + gap) / (segmentWidth + gap)));
+
+    return {
+        segmentWidth,
+        gap,
+        count,
+        width: count * (segmentWidth + gap) - gap,
+        height: Math.max(1, Math.round(BAR_CSS_HEIGHT * scale)),
+    };
+}
+
+/**
+ * Draw a segmented usage bar onto a canvas, one device pixel per bitmap pixel.
+ *
+ * The fill level is remembered on the element so the bar can be redrawn when
+ * the display scale changes (see redrawAllBars).
+ *
+ * @param {HTMLCanvasElement} canvas - Target canvas.
+ * @param {number} fillPct - Usage from 0 to 1.
+ */
+function drawBar(canvas, fillPct) {
+    canvas.dataset.fill = String(fillPct);
+    if (!canvas.getContext) return;
+
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const layout = barLayout(dpr);
+    canvas.width = layout.width;
+    canvas.height = layout.height;
+    canvas.style.width = `${layout.width / dpr}px`;
+    canvas.style.height = `${layout.height / dpr}px`;
+
+    const ctx = canvas.getContext('2d');
+    const lit = filledSegmentCount(fillPct, layout.count);
+    const litColor = usageColor(fillPct);
+    for (let i = 0; i < layout.count; i++) {
+        ctx.fillStyle = i < lit ? litColor : 'rgba(255, 255, 255, 0.1)';
+        ctx.fillRect(i * (layout.segmentWidth + layout.gap), 0, layout.segmentWidth, layout.height);
+    }
+}
+
+/** Redraw every bar, e.g. after the display scale (DPI) changed. */
+function redrawAllBars() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return;
+    for (const canvas of document.querySelectorAll('.compact-bar-canvas')) {
+        drawBar(canvas, Number(canvas.dataset.fill) || 0);
+    }
+}
+
 /** Number of lit segments; any non-zero usage lights at least one. */
 function filledSegmentCount(fillPct, count) {
     return fillPct > 0 ? Math.max(1, Math.round(fillPct * count)) : 0;
@@ -472,19 +543,10 @@ function createBarElement(entry) {
         container.appendChild(divider);
     }
 
-    const segmentsCount = 25;
-    const fillCount = filledSegmentCount(entry.fill_pct, segmentsCount);
-
-    for (let i = 0; i < segmentsCount; i++) {
-        const seg = document.createElement('div');
-        seg.className = 'compact-segment';
-        if (i < fillCount) {
-            seg.classList.add('filled');
-            seg.style.background = usageColor(entry.fill_pct);
-        }
-        if (entry.warn && i < fillCount) seg.classList.add('warn');
-        container.appendChild(seg);
-    }
+    const canvas = document.createElement('canvas');
+    canvas.className = 'compact-bar-canvas';
+    drawBar(canvas, entry.fill_pct);
+    container.appendChild(canvas);
 
     const reset = document.createElement('div');
     reset.className = 'compact-reset';
@@ -516,13 +578,8 @@ function updateBarElement(div, entry) {
     
     const container = div.querySelector('.compact-bar-container');
     if (container) {
-        const segments = container.querySelectorAll('.compact-segment');
-        const fillCount = filledSegmentCount(entry.fill_pct, segments.length);
-        for (let i = 0; i < segments.length; i++) {
-            segments[i].classList.toggle('filled', i < fillCount);
-            segments[i].style.background = i < fillCount ? usageColor(entry.fill_pct) : '';
-            segments[i].classList.toggle('warn', entry.warn && i < fillCount);
-        }
+        const canvas = container.querySelector('.compact-bar-canvas');
+        if (canvas) drawBar(canvas, entry.fill_pct);
 
         const marker = container.querySelector('.bar-marker');
         if (marker && entry.marker_rel != null) {
@@ -593,6 +650,7 @@ if (typeof ResizeObserver !== 'undefined' && typeof document !== 'undefined') {
 if (typeof window !== 'undefined' && window.matchMedia) {
     const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
     const onDpi = () => {
+        redrawAllBars();
         reportDimensions();
     };
     if (mq.addEventListener) {

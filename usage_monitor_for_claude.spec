@@ -6,9 +6,15 @@ Build:
   pyinstaller usage_monitor_for_claude.spec
 """
 
+import os
+
+# claudeswitch is installed editable from a sibling checkout, which PyInstaller's
+# import analysis cannot follow; naming the folder lets it bundle the package.
+CLAUDESWITCH_DIR = os.path.abspath(os.path.join(SPECPATH, '..', 'ClaudeSwitch'))
+
 a = Analysis(
     ['usage_monitor_for_claude/__main__.py'],
-    pathex=[],
+    pathex=[CLAUDESWITCH_DIR],
     binaries=[],
     datas=[
         ('locale/*.json', 'locale'),

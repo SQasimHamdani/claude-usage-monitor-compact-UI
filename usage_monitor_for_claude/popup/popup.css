@@ -113,24 +113,14 @@ body.pinned .app-container:active {
 }
 
 .compact-bar-container {
-    display: flex;
-    gap: 1px;
+    display: block;
     height: 9px;
     position: relative;
 }
 
-.compact-segment {
-    flex: 1;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 1px;
-    transition: background 0.3s ease;
-}
-
-.compact-segment.filled {
-    background: #e57351;
-}
-.compact-segment.warn {
-    background: #e55353;
+/* Drawn in whole device pixels by drawBar(), so segments and gaps are exact. */
+.compact-bar-canvas {
+    display: block;
 }
 
 .compact-reset {

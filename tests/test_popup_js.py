@@ -341,18 +341,51 @@ console.log(JSON.stringify([filledSegmentCount(0.01, 25), filledSegmentCount(0, 
 ''')
         self.assertEqual(result, [1, 0, 13])
 
-    def test_every_lit_segment_shares_one_colour(self):
-        """The whole filled bar is one colour; unlit segments carry none."""
+    def test_bar_stores_fill_for_redraw(self):
+        """A bar remembers its fill level so a DPI change can redraw it."""
         result = _run_scenario('''
 const div = createBarElement(makeEntry({ fill_pct: 0.04 }));
+const canvas = div.querySelector('.compact-bar-canvas');
+const first = canvas.dataset.fill;
 updateBarElement(div, makeEntry({ fill_pct: 0.4 }));
-const segments = div.querySelectorAll('.compact-segment');
-const lit = segments.slice(0, 10).map((s) => s.style.background);
-console.log(JSON.stringify({ distinct: [...new Set(lit)].length, dark: segments[10].style.background, color: lit[0] }));
+console.log(JSON.stringify({ first, second: canvas.dataset.fill }));
 ''')
-        self.assertEqual(result['distinct'], 1)
-        self.assertEqual(result['dark'], '')
-        self.assertTrue(result['color'].startswith('hsl('))
+        self.assertEqual(result, {'first': '0.04', 'second': '0.4'})
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestBarLayout(unittest.TestCase):
+    """The segment layout must be exact in whole device pixels at every display scale."""
+
+    def test_layout_is_uniform_at_every_scale(self):
+        """Segments and gaps are integers and the bar width is exactly count*(segment+gap)-gap."""
+        result = _run_scenario('''
+const scales = [1, 1.1, 1.25, 1.33, 1.5, 1.75, 2, 2.25, 2.5, 3];
+console.log(JSON.stringify(scales.map((dpr) => ({ dpr, layout: barLayout(dpr) }))));
+''')
+        for entry in result:
+            layout = entry['layout']
+            dpr = entry['dpr']
+            for key in ('segmentWidth', 'gap', 'count', 'width', 'height'):
+                self.assertEqual(layout[key], int(layout[key]), f'{key} not whole at dpr {dpr}')
+            self.assertEqual(layout['width'], layout['count'] * (layout['segmentWidth'] + layout['gap']) - layout['gap'])
+            self.assertLessEqual(layout['width'], int(110 * dpr), f'bar wider than its box at dpr {dpr}')
+            self.assertGreaterEqual(layout['width'], 110 * dpr - (layout['segmentWidth'] + layout['gap']), f'bar too short at dpr {dpr}')
+
+    def test_layout_at_100_percent(self):
+        """At 100% the bar is 37 segments of 2px with 1px gaps, 110px wide."""
+        result = _run_scenario('''
+console.log(JSON.stringify(barLayout(1)));
+''')
+        self.assertEqual(result, {'segmentWidth': 2, 'gap': 1, 'count': 37, 'width': 110, 'height': 9})
+
+    def test_degenerate_scale_falls_back_to_100_percent(self):
+        """A zero or missing scale must not produce a broken layout."""
+        result = _run_scenario('''
+console.log(JSON.stringify([barLayout(0), barLayout(undefined)]));
+''')
+        self.assertEqual(result[0], result[1])
+        self.assertEqual(result[0]['count'], 37)
 
 
 @unittest.skipUnless(_NODE, 'Node.js not available')
